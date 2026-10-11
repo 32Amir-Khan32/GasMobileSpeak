@@ -24,8 +24,8 @@ pub struct Calibration {
 }
 const EARSHOT_FRAME_SIZE: usize = 256;
 const EARSHOT_CALIBRATION: Calibration = Calibration {
-    onset: 0.50,
-    sustain: 0.40,
+    onset: 0.45,
+    sustain: 0.35,
     attack_samples: 768,
 };
 pub fn remove_retired_model_cache(storage: &Path) {

@@ -26,8 +26,10 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -129,18 +131,21 @@ internal fun android.content.Context.fileError(value: String): String = when (va
 }
 private fun fileDate(timestamp: Long, context: android.content.Context) = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, context.resources.configuration.locales[0]).format(Date(timestamp * 1000))
 
-@Composable internal fun ChannelFileTools(ui: SessionUiState) {
-    if (ui.channelFiles.open) { ChannelFilesDrawer(ui); return }
-    Column {
-        NetworkQualityPanel(ui.snapshot.networkQuality ?: NetworkQuality(), Modifier.wrapContentHeight(align = Alignment.Top, unbounded = true))
+@Composable internal fun ChannelFileTools(ui: SessionUiState, fileHeaderModifier: Modifier = Modifier) {
+    if (ui.channelFiles.open) { ChannelFilesDrawer(ui, fileHeaderModifier); return }
+    // Measure the whole toolbox naturally; the drawer clips the portion currently revealed.
+    Column(Modifier.wrapContentHeight(align = Alignment.Top, unbounded = true)) {
+        NetworkQualityPanel(ui.snapshot.networkQuality ?: NetworkQuality())
         val density = LocalDensity.current
         CompositionLocalProvider(LocalDensity provides Density(density.density, minOf(density.fontScale, 1.4f))) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.files_tools), color = Palette.muted, style = MaterialTheme.typography.labelLarge)
-                Row(Modifier.fillMaxWidth().background(Palette.card, RoundedCornerShape(14.dp))
-                    .clickable(enabled = ui.snapshot.status == "connected" && ui.snapshot.ownClient != null) { ClientSession.openChannelFiles() }
-                    .heightIn(min = 72.dp).padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Icon(UiIcons.Folder, null, Modifier.size(26.dp), tint = Palette.accent)
+                Text(stringResource(R.string.files_tools), color = Palette.muted, fontSize = 12.sp, lineHeight = 14.sp,
+                    fontWeight = FontWeight.Normal, letterSpacing = 0.sp)
+                Row(Modifier.fillMaxWidth()
+                    .clickable(interactionSource = null, indication = RowPressFeedback, enabled = ui.snapshot.status == "connected" && ui.snapshot.ownClient != null) { ClientSession.openChannelFiles() }
+                    .background(Palette.card, RoundedCornerShape(14.dp))
+                    .testTag("channel-files-tool").heightIn(min = 72.dp).padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Icon(UiIcons.Folder, null, Modifier.size(26.dp).testTag("channel-files-tool-icon"), tint = Palette.accent)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(stringResource(R.string.files_title), color = Palette.text)
                         Text(stringResource(R.string.files_subtitle), color = Palette.muted, style = MaterialTheme.typography.bodySmall)
@@ -151,7 +156,7 @@ private fun fileDate(timestamp: Long, context: android.content.Context) = DateFo
         }
     }
 }
-@Composable internal fun ChannelFilesDrawer(ui: SessionUiState) {
+@Composable internal fun ChannelFilesDrawer(ui: SessionUiState, headerModifier: Modifier = Modifier) {
     val files = ui.channelFiles
     val context = LocalContext.current
     val target = if (files.server != null && files.channel != null) ChannelFileTarget(files.server, files.channel, files.path) else null
@@ -180,45 +185,56 @@ private fun fileDate(timestamp: Long, context: android.content.Context) = DateFo
     BackHandler { back() }
     Column(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        CompositionLocalProvider(LocalDensity provides Density(density.density, minOf(density.fontScale, 1.4f))) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = back, contentPadding = PaddingValues(2.dp)) {
-                    Icon(UiIcons.ChevronRight, null, Modifier.size(18.dp).scale(-1f, 1f)); Text(stringResource(R.string.action_back))
-                }
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(stringResource(R.string.files_title), color = Palette.text, style = MaterialTheme.typography.titleMedium)
-                    Text(files.channelName.orEmpty(), color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                TextButton(onClick = upload, enabled = files.status == "ready" && !preparing && ui.snapshot.status == "connected", contentPadding = PaddingValues(4.dp)) {
-                    Icon(UiIcons.Upload, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.files_upload))
-                }
-            }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(UiIcons.Folder, null, Modifier.size(18.dp), tint = Palette.muted)
-                Text(files.path, Modifier.weight(1f).padding(horizontal = 6.dp), color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                TextButton(onClick = { command("files_list") }, enabled = canRefresh,
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("files-refresh"),
-                    colors = ButtonDefaults.textButtonColors(contentColor = Palette.accent), contentPadding = PaddingValues(8.dp)) {
-                    Icon(UiIcons.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp))
-                    Text(stringResource(R.string.files_reload), style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                }
-                Spacer(Modifier.width(4.dp))
-                Box {
-                    TextButton(onClick = { sortMenu = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("files-sort"),
-                        colors = ButtonDefaults.textButtonColors(contentColor = Palette.accent), contentPadding = PaddingValues(start = 12.dp, top = 8.dp, bottom = 8.dp)) {
-                        Icon(UiIcons.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp))
-                        Text(stringResource(if (files.sort == "newest") R.string.files_sort_newest else R.string.files_sort_name), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        // Keep the measured drag boundary inside the unbounded header, and the lazy list bounded.
+        Column(Modifier.wrapContentHeight(align = Alignment.Top, unbounded = true).then(headerModifier).testTag("channel-files-header")) {
+            CompositionLocalProvider(LocalDensity provides Density(density.density, minOf(density.fontScale, 1.4f))) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PressFeedback(ToolbarPressFeedback) { source, feedback, _ ->
+                        TextButton(interactionSource = source, modifier = feedback, onClick = back, contentPadding = PaddingValues(2.dp)) {
+                            Icon(UiIcons.ChevronRight, null, Modifier.size(18.dp).scale(-1f, 1f)); Text(stringResource(R.string.action_back))
+                        }
                     }
-                    DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                        for ((key, newest) in listOf(R.string.files_sort_name to false, R.string.files_sort_newest to true)) {
-                            DropdownMenuItem(text = { Text(stringResource(key)) }, onClick = { sortMenu = false; command("files_sort", JSONObject().put("newest", newest)) })
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(stringResource(R.string.files_title), color = Palette.text, style = MaterialTheme.typography.titleMedium)
+                        Text(files.channelName.orEmpty(), color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    PressFeedback(ToolbarPressFeedback) { source, feedback, _ ->
+                        TextButton(interactionSource = source, modifier = feedback, onClick = upload, enabled = files.status == "ready" && !preparing && ui.snapshot.status == "connected", contentPadding = PaddingValues(4.dp)) {
+                            Icon(UiIcons.Upload, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.files_upload))
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(UiIcons.Folder, null, Modifier.size(18.dp), tint = Palette.muted)
+                    Text(files.path, Modifier.weight(1f).padding(horizontal = 6.dp), color = Palette.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    PressFeedback(ToolbarPressFeedback) { source, feedback, _ ->
+                        TextButton(interactionSource = source, onClick = { command("files_list") }, enabled = canRefresh,
+                            modifier = Modifier.heightIn(min = 48.dp).testTag("files-refresh").then(feedback),
+                            colors = ButtonDefaults.textButtonColors(contentColor = Palette.accent), contentPadding = PaddingValues(8.dp)) {
+                            Icon(UiIcons.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp))
+                            Text(stringResource(R.string.files_reload), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                        }
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Box {
+                        PressFeedback(null) { source, _, _ ->
+                            TextButton(interactionSource = source, onClick = { sortMenu = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("files-sort"),
+                                colors = ButtonDefaults.textButtonColors(contentColor = Palette.accent), contentPadding = PaddingValues(start = 12.dp, top = 8.dp, bottom = 8.dp)) {
+                                Icon(UiIcons.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp))
+                                Text(stringResource(if (files.sort == "newest") R.string.files_sort_newest else R.string.files_sort_name), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            }
+                        }
+                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                            for ((key, newest) in listOf(R.string.files_sort_name to false, R.string.files_sort_newest to true)) {
+                                DropdownMenuItem(text = { Text(stringResource(key)) }, onClick = { sortMenu = false; command("files_sort", JSONObject().put("newest", newest)) })
+                            }
                         }
                     }
                 }
             }
+            HorizontalDivider(color = Palette.border)
         }
-        HorizontalDivider(color = Palette.border)
-        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("channel-files-list")) {
             if (preparing) item { Text(stringResource(R.string.files_staging), Modifier.padding(16.dp), color = Palette.muted) }
             (ui.channelFilesLocalError ?: files.error)?.let { error -> item { Text(context.fileError(error), Modifier.padding(16.dp), color = Palette.disconnect) } }
             val selected = info
@@ -241,7 +257,10 @@ private fun fileDate(timestamp: Long, context: android.content.Context) = DateFo
                     Column(Modifier.padding(14.dp)) { Text(task.name, color = Palette.text, maxLines = 1, overflow = TextOverflow.MiddleEllipsis); FileTransferStatus(task) }
                 }
                 when(files.status) {
-                    "loading" -> item { Row(Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(24.dp)); Text(stringResource(R.string.files_loading), Modifier.padding(start = 12.dp), color = Palette.muted) } }
+                    "loading" -> item { Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CircularProgressIndicator(Modifier.size(20.dp))
+                        Text(stringResource(R.string.files_loading), color = Palette.text)
+                    } }
                     "failed" -> item { Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(UiIcons.Error, null, Modifier.size(32.dp), tint = Palette.disconnect)
                         Text(stringResource(R.string.files_load_failed), color = Palette.text)
@@ -250,14 +269,13 @@ private fun fileDate(timestamp: Long, context: android.content.Context) = DateFo
                     "ready" -> if (files.entries.isEmpty()) item { Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(UiIcons.Folder, null, Modifier.size(40.dp), tint = Palette.muted)
                         Text(stringResource(R.string.files_empty), Modifier.padding(8.dp), color = Palette.muted)
-                        TextButton(onClick = upload, enabled = !preparing) { Text(stringResource(R.string.files_upload)) }
                     } }
                 }
                 items(files.entries, key = { "entry:${it.name}" }) { entry ->
                     var menu by remember { mutableStateOf(false) }
                     Column {
                         Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Row(Modifier.weight(1f).clickable {
+                            Row(Modifier.weight(1f).clickable(interactionSource = null, indication = RowPressFeedback) {
                                 if (entry.directory) command("files_list", JSONObject().put("path", if (files.path == "/") "/${entry.name}" else "${files.path}/${entry.name}")) else info = entry
                             }.heightIn(min = 68.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Icon(fileIcon(entry.icon), null, Modifier.size(24.dp), tint = Palette.muted)
@@ -268,7 +286,9 @@ private fun fileDate(timestamp: Long, context: android.content.Context) = DateFo
                                 if (entry.directory) Icon(UiIcons.ChevronRight, null, Modifier.size(18.dp), tint = Palette.muted)
                             }
                             if (!entry.directory) Box {
-                                IconButton(onClick = { menu = true }) { Icon(UiIcons.More, stringResource(R.string.files_info) + ": " + entry.name, tint = Palette.text) }
+                                PressFeedback(null) { source, _, _ ->
+                                    IconButton(interactionSource = source, onClick = { menu = true }) { Icon(UiIcons.More, stringResource(R.string.files_info) + ": " + entry.name, tint = Palette.text) }
+                                }
                                 DropdownMenu(menu, { menu = false }) {
                                     DropdownMenuItem(text = { Text(stringResource(R.string.files_download)) }, leadingIcon = { Icon(UiIcons.Download, null) }, onClick = { menu = false; target?.let { ClientSession.downloadChannelFile(entry.name, it) } })
                                     DropdownMenuItem(text = { Text(stringResource(R.string.files_info)) }, leadingIcon = { Icon(UiIcons.Info, null) }, onClick = { menu = false; info = entry })

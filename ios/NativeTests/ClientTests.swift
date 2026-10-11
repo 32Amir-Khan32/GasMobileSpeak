@@ -434,6 +434,31 @@ final class ClientTests: XCTestCase {
         try await Task.sleep(nanoseconds: 500_000_000)
         XCTAssertEqual(drawerTop(), collapsedTop, accuracy: 0.5)
         XCTAssertEqual(homeScrolls[2].contentOffset.y, offsets[2], accuracy: 0.5)
+
+        client.state = snapshot
+        try await Task.sleep(nanoseconds: 150_000_000)
+        try activate(L10n.string("voice_drawer_expand"))
+        try await Task.sleep(nanoseconds: 500_000_000)
+        for category in [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge] {
+            container.setOverrideTraitCollection(UITraitCollection(preferredContentSizeCategory: category), forChild: host)
+            client.channelFiles = ChannelFilesState(open: true, server: "fixture", channel: 20, channelName: "Scroll channel 20", path: "/", status: "ready")
+            try await Task.sleep(nanoseconds: 200_000_000)
+            let pane = try XCTUnwrap(drawer(host.view))
+            let content = try XCTUnwrap(scrolls(pane).first)
+            let contentTop = content.convert(content.bounds, to: window).minY
+            let uploads = accessibleElements().filter { $0.accessibilityTraits.contains(.button) && $0.accessibilityLabel == L10n.string("files_upload") }
+            XCTAssertEqual(uploads.count, 1, "Empty directories only offer the header upload")
+            XCTAssertTrue(accessibleElements().contains { $0.accessibilityLabel == L10n.string("files_empty") })
+            for key in ["action_back", "files_upload", "files_reload", "files_sort_name"] {
+                let button = try XCTUnwrap(accessibleElements().first { $0.accessibilityTraits.contains(.button) && $0.accessibilityLabel == L10n.string(key) })
+                XCTAssertGreaterThanOrEqual(button.accessibilityFrame.height, 44)
+                XCTAssertLessThanOrEqual(button.accessibilityFrame.maxY, contentTop + 1, "File controls stay above the scroll region")
+            }
+            let image = UIGraphicsImageRenderer(size: pane.bounds.size).image { _ in pane.drawHierarchy(in: pane.bounds, afterScreenUpdates: true) }
+            let attachment = XCTAttachment(image: image); attachment.name = "drawer-files-empty-\(category.rawValue)"; attachment.lifetime = .keepAlways; add(attachment)
+            try image.pngData()?.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("drawer-files-empty-\(category.rawValue).png"))
+        }
+        container.setOverrideTraitCollection(nil, forChild: host)
     }
 
     @MainActor func testChannelFilesDecodeAndRenderScrollableRowsAtLargeTextSizes() async throws {
@@ -536,6 +561,10 @@ final class ClientTests: XCTestCase {
                     let image = UIGraphicsImageRenderer(size: host.view.bounds.size).image { _ in host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true) }
                     let attachment = XCTAttachment(image: image); attachment.name = "files-controls-\(language)-\(category)-\(index)"; attachment.lifetime = .keepAlways; add(attachment)
                     let all = elements(host.view)
+                    let uploads = all.filter { $0.accessibilityTraits.contains(.button) && $0.accessibilityLabel == L10n.string("files_upload") }
+                    XCTAssertEqual(uploads.count, 1, "Upload remains only in the header")
+                    XCTAssertEqual(uploads.first?.accessibilityTraits.contains(.notEnabled), !connected || status != "ready")
+                    if index == 2 { XCTAssertTrue(all.contains { $0.accessibilityLabel == L10n.string("files_empty") }) }
                     let refresh = try XCTUnwrap(all.first { $0.accessibilityTraits.contains(.button) && $0.accessibilityLabel == L10n.string("files_reload") })
                     let sorting = try XCTUnwrap(all.first { $0.accessibilityTraits.contains(.button) && $0.accessibilityLabel == L10n.string(sort == "newest" ? "files_sort_newest" : "files_sort_name") })
                     XCTAssertEqual(refresh.accessibilityLabel, L10n.string("files_reload"))

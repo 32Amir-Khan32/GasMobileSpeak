@@ -250,7 +250,6 @@ struct ChannelFilesDrawer: View {
                         } else if files.status == "ready" && files.entries.isEmpty {
                             AppIcon(name: "folder", size: 40).foregroundStyle(Palette.muted).padding(.top, 24)
                             Text(L10n.string("files_empty")).foregroundStyle(Palette.muted).padding(8)
-                            Button(L10n.string("files_upload")) { uploadTarget = target; choosing = uploadTarget != nil }.frame(minHeight: 44).disabled(preparing)
                         }
                         ForEach(files.entries) { entry in row(entry, target: target) }
                     }

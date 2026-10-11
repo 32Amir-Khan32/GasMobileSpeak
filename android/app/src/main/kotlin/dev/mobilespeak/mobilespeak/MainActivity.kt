@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -73,13 +74,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -338,7 +343,9 @@ internal fun MobileSpeakApp(requestPermissions: () -> Unit, openAbout: Boolean =
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(it, Modifier.weight(1f), fontSize = 13.sp, lineHeight = 16.sp)
-                                TextButton(onClick = ClientSession::clearError) { Text(stringResource(R.string.action_close)) }
+                                PressFeedback(ToolbarPressFeedback) { source, feedback, _ ->
+                                    TextButton(interactionSource = source, modifier = feedback, onClick = ClientSession::clearError) { Text(stringResource(R.string.action_close)) }
+                                }
                             }
                         }
                         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
@@ -433,7 +440,7 @@ internal fun Header(ui: SessionUiState) {
         Text(server ?: "MobileSpeak", Modifier.weight(1f), fontSize = 16.sp, lineHeight = 19.sp, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.ExtraBold, maxLines = 1)
         if (ui.snapshot.status != "disconnected") {
             Box(
-                Modifier.size(44.dp).semantics { contentDescription = disconnectLabel }.clickable(interactionSource = null, indication = null) { ClientSession.disconnect() },
+                Modifier.size(44.dp).semantics { contentDescription = disconnectLabel }.clickable(interactionSource = null, indication = RowPressFeedback) { ClientSession.disconnect() },
                 contentAlignment = Alignment.Center,
             ) {
                 Image(painterResource(R.drawable.ic_off), contentDescription = null, modifier = Modifier.size(34.dp))
@@ -472,11 +479,17 @@ internal fun BookmarkScreen(
             Text(stringResource(R.string.empty_title), fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(16.dp))
             Text(stringResource(R.string.empty_message), color = Palette.muted, textAlign = TextAlign.Center, fontSize = 15.sp, lineHeight = 18.sp)
-            Button(onClick = onAdd, modifier = Modifier.padding(top = 8.dp), shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(containerColor = Palette.accent, contentColor = Palette.text)) {
-                Icon(UiIcons.Plus, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.action_connect_server))
+            PressFeedback(RowPressFeedback) { source, feedback, pressed ->
+                val background by animateColorAsState(if (pressed) lerp(Palette.accent, Color.White, 0.2f) else Palette.accent,
+                    tween(if (pressed) 0 else 350, easing = ObservedPressRecovery), label = "Connect press background")
+                Button(onClick = onAdd, interactionSource = source, modifier = Modifier.padding(top = 8.dp), shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = background, contentColor = Palette.text)) {
+                    Row(feedback, verticalAlignment = Alignment.CenterVertically) {
+                        Icon(UiIcons.Plus, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.action_connect_server))
+                    }
+                }
             }
         }
         return
@@ -486,7 +499,7 @@ internal fun BookmarkScreen(
         items(ui.bookmarks, key = { it.id }) { bookmark ->
             var menu by remember { mutableStateOf(false) }
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.card).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f).heightIn(min = 64.dp).clickable(interactionSource = null, indication = null) { onConnect(bookmark) }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.weight(1f).heightIn(min = 64.dp).clickable(interactionSource = null, indication = RowPressFeedback) { onConnect(bookmark) }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Avatar(bookmark.title, null, false, 34)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(bookmark.title, fontSize = 17.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -495,7 +508,9 @@ internal fun BookmarkScreen(
                     }
                 }
                 Box {
-                    IconButton(onClick = { menu = true }, modifier = Modifier.size(44.dp)) { Icon(UiIcons.More, stringResource(R.string.bookmark_manage, bookmark.title), tint = Palette.text) }
+                    PressFeedback(null) { source, _, _ ->
+                        IconButton(interactionSource = source, onClick = { menu = true }, modifier = Modifier.size(44.dp)) { Icon(UiIcons.More, stringResource(R.string.bookmark_manage, bookmark.title), tint = Palette.text) }
+                    }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Palette.card) {
                         DropdownMenuItem(text = { Text(stringResource(R.string.action_edit)) },
                             leadingIcon = { Icon(UiIcons.Pencil, null, Modifier.size(24.dp), tint = Palette.accent) }, onClick = { menu = false; onEdit(bookmark) })
@@ -506,7 +521,7 @@ internal fun BookmarkScreen(
             }
         }
         item {
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(interactionSource = null, indication = null, onClick = onAdd).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(interactionSource = null, indication = ToolbarPressFeedback, onClick = onAdd).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(UiIcons.Plus, null, Modifier.size(18.dp))
                 Text(stringResource(R.string.bookmark_add_server), fontSize = 17.sp, lineHeight = 20.sp)
             }
@@ -564,17 +579,22 @@ private fun BookmarkDialog(existing: Bookmark?, onDismiss: () -> Unit, onSaved: 
                 BookmarkField(nickname, { nickname = it }, stringResource(R.string.nickname))
             }
             Spacer(Modifier.height(28.dp))
-            Surface(
-                onClick = {
-                    ClientSession.saveBookmark(existing?.id, title, host, port, nickname, password)?.let(onSaved)
-                },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = Palette.card,
-                contentColor = Palette.accent,
-            ) {
-                Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
-                    Text(stringResource(if (existing == null) R.string.action_save_and_connect else R.string.action_save), fontSize = 17.sp, lineHeight = 20.sp)
+            PressFeedback(null) { source, _, pressed ->
+                val background by animateColorAsState(if (pressed) lerp(Palette.card, Color.White, 0.066f) else Palette.card,
+                    tween(if (pressed) 0 else 350, easing = ObservedPressRecovery), label = "Bookmark press background")
+                Surface(
+                    interactionSource = source,
+                    onClick = {
+                        ClientSession.saveBookmark(existing?.id, title, host, port, nickname, password)?.let(onSaved)
+                    },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    color = background,
+                    contentColor = Palette.accent,
+                ) {
+                    Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+                        Text(stringResource(if (existing == null) R.string.action_save_and_connect else R.string.action_save), fontSize = 17.sp, lineHeight = 20.sp)
+                    }
                 }
             }
         }
@@ -635,7 +655,7 @@ internal fun ChannelScreen(ui: SessionUiState, onSelect: (Channel) -> Unit, onCh
                     textAlign = when { marker.startsWith("[c") -> TextAlign.Center; marker.startsWith("[r") -> TextAlign.End; else -> TextAlign.Start })
             } else {
                 Row(card.border(if (selected) 2.dp else 1.dp, if (selected) Palette.accent else Palette.border, shape).padding(10.dp).padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Column(Modifier.weight(1f).clickable(interactionSource = null, indication = null) {
+                    Column(Modifier.weight(1f).clickable(interactionSource = null, indication = RowPressFeedback) {
                         haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
                         onSelect(channel)
                     }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -649,8 +669,8 @@ internal fun ChannelScreen(ui: SessionUiState, onSelect: (Channel) -> Unit, onCh
                             Text(pluralStringResource(R.plurals.channel_members_summary, members.size, names, members.size), fontSize = 11.sp, lineHeight = 13.sp, color = Palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                    Box {
-                        Box(Modifier.size(48.dp).clip(RoundedCornerShape(10.dp)).background(Palette.bottom).clickable(enabled = selected) { onChat(channel) }, contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(48.dp).clickable(interactionSource = null, indication = ToolbarPressFeedback, enabled = selected) { onChat(channel) }) {
+                        Box(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(Palette.bottom), contentAlignment = Alignment.Center) {
                             Icon(UiIcons.Chat, stringResource(R.string.channel_chat_open, channel.name), Modifier.size(28.dp), tint = if (selected) Color.White else Palette.muted.copy(alpha = .45f))
                         }
                         if (selected) UnreadBadge(ui.unread.channelCount, Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-5).dp))
@@ -680,7 +700,9 @@ private fun ChannelDialog(channel: Channel, ui: SessionUiState, onDismiss: () ->
                     ChannelIcon(current, 28)
                     Spacer(Modifier.width(8.dp))
                     Text(current.name, Modifier.weight(1f), fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close), fontSize = 17.sp, lineHeight = 20.sp) }
+                    PressFeedback(ToolbarPressFeedback) { source, feedback, _ ->
+                        TextButton(interactionSource = source, modifier = feedback, onClick = onDismiss) { Text(stringResource(R.string.action_close), fontSize = 17.sp, lineHeight = 20.sp) }
+                    }
                 }
                 Column(Modifier.fillMaxWidth().heightIn(min = 52.dp, max = listMaximum).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     if (members.isEmpty()) Text(stringResource(R.string.channel_no_members), Modifier.padding(vertical = 16.dp), color = Palette.muted)
@@ -708,7 +730,7 @@ internal fun MemberScreen(ui: SessionUiState, onChat: (Member) -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = pageTitleInset, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { PageTitle(stringResource(R.string.tab_members), Modifier.padding(horizontal = pageTitleInset)) }
         items(ui.snapshot.clients.filter { it.id != ui.snapshot.ownClient }, key = { it.id }) { member ->
-            MemberRow(member, Modifier.padding(horizontal = 16.dp).clickable(enabled = member.uid != null, interactionSource = null, indication = null) { onChat(member) }, ui.unread.privateCounts[member.uid] ?: 0)
+            MemberRow(member, Modifier.padding(horizontal = 16.dp).clickable(enabled = member.uid != null, interactionSource = null, indication = RowPressFeedback) { onChat(member) }, ui.unread.privateCounts[member.uid] ?: 0)
         }
     }
 }
@@ -777,8 +799,8 @@ internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, 
                         Text(stringResource(if (ui.avatarIntent == "clear") R.string.avatar_cleared_local else if (ui.avatarPreviewPath == null) R.string.avatar_none else R.string.avatar_local),
                             fontSize = 13.sp, lineHeight = 17.sp, color = Palette.muted)
                     }
-                    CompositionLocalProvider(LocalRippleConfiguration provides null) {
-                        TextButton(onClick = {
+                    PressFeedback(RowPressFeedback) { source, feedback, _ ->
+                        TextButton(interactionSource = source, modifier = feedback, onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
                             avatarSelection = ClientSession.beginAvatarSelection(); avatarPicker.launch(
                                 androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -786,14 +808,15 @@ internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, 
                         }) { Text(stringResource(if (ui.avatarPreviewPath == null) R.string.avatar_choose else R.string.avatar_change)) }
                     }
                 }
-                CompositionLocalProvider(LocalRippleConfiguration provides null) {
+                PressFeedback(RowPressFeedback) { source, feedback, _ ->
                     TextButton(onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
                         avatarClearPresented = true
                     }, enabled = !ui.avatarClearingLocally && ui.avatarStatus != "clearing",
-                        modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp),
+                        interactionSource = source, modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp).then(feedback),
                         contentPadding = PaddingValues(0.dp),
-                        colors = ButtonDefaults.textButtonColors(contentColor = Palette.disconnect)) {
+                        colors = ButtonDefaults.textButtonColors(contentColor = Palette.disconnect,
+                            disabledContentColor = Palette.disconnect.copy(alpha = 0.38f))) {
                         Text(stringResource(R.string.avatar_remove), fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Normal)
                     }
                 }
@@ -824,7 +847,7 @@ internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, 
                         if (index > 0) HorizontalDivider(Modifier.padding(start = 16.dp), color = Palette.border)
                         val selected = ui.noiseSuppression == mode
                         val selectionState = stringResource(if (selected) R.string.selection_selected else R.string.selection_not_selected)
-                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { stateDescription = selectionState }.selectable(selected, role = Role.RadioButton) {
+                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { stateDescription = selectionState }.selectable(selected, interactionSource = null, indication = RowPressFeedback, role = Role.RadioButton) {
                             if (!selected) {
                                 haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
                                 ClientSession.setNoiseSuppression(mode)
@@ -899,6 +922,7 @@ internal fun VoiceDrawer(ui: SessionUiState, requestPermissions: () -> Unit, exp
     var settleRequest by remember { mutableIntStateOf(0) }
     var automaticallyClosing by remember { mutableStateOf(false) }
     val currentAutomaticClose by rememberUpdatedState(automaticallyClosing)
+    var filesHeaderHeight by remember(ui.channelFiles.open) { mutableIntStateOf(0) }
     val containerOffset = with(density) { (availableHeight.toPx() - 64.dp.toPx()).coerceAtLeast(0f) }
     // A resized expansion anchor must not clip an automatic close or the user's next gesture.
     val maximumOffset = maxOf(travel + limit, height).coerceAtMost(containerOffset)
@@ -945,7 +969,8 @@ internal fun VoiceDrawer(ui: SessionUiState, requestPermissions: () -> Unit, exp
     val drag = Modifier.pointerInput(session, ui.channelFiles.open) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            if (!connected || travel == 0f || (ui.channelFiles.open && down.position.y >= with(density) { 64.dp.toPx() })) return@awaitEachGesture
+            // Measure through the file toolbar divider; content below it keeps its own scrolling.
+            if (!connected || travel == 0f || (ui.channelFiles.open && down.position.y >= with(density) { 64.dp.toPx() } + filesHeaderHeight)) return@awaitEachGesture
             val closingOnPress = currentAutomaticClose
             if (!closingOnPress) {
                 held = true
@@ -1000,25 +1025,28 @@ internal fun VoiceDrawer(ui: SessionUiState, requestPermissions: () -> Unit, exp
     val label = stringResource(if (expanded && connected) R.string.voice_drawer_collapse else R.string.voice_drawer_expand)
     val state = stringResource(if (expanded && connected) R.string.voice_drawer_expanded else R.string.voice_drawer_collapsed)
     val visibleOffset = height.coerceIn(-limit, maximumOffset)
-    Column(modifier.fillMaxWidth()
-        .offset { IntOffset(0, (-minOf(0f, visibleOffset)).roundToInt()) }
-        .height((64.dp + with(density) { maxOf(0f, visibleOffset).toDp() }).coerceAtMost(availableHeight))
-        .background(Palette.bottom).clipToBounds().then(drag)) {
-        Box(Modifier.fillMaxWidth().height(64.dp)) {
-            Column {
-                Spacer(Modifier.height(16.dp))
-                VoiceBar(ui, requestPermissions)
+    // Also clip overscroll to the available container, so it cannot cover or capture navigation.
+    Box(modifier.fillMaxWidth().height(availableHeight).clipToBounds()) {
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+            .offset { IntOffset(0, (-minOf(0f, visibleOffset)).roundToInt()) }
+            .height((64.dp + with(density) { maxOf(0f, visibleOffset).toDp() }).coerceAtMost(availableHeight))
+            .background(Palette.bottom).clipToBounds().testTag("voice-drawer").then(drag)) {
+            Box(Modifier.fillMaxWidth().height(64.dp)) {
+                Column {
+                    Spacer(Modifier.height(16.dp))
+                    VoiceBar(ui, requestPermissions)
+                }
+                Box(Modifier.align(Alignment.TopCenter).size(48.dp)
+                    .clickable(interactionSource = null, indication = RowPressFeedback, enabled = connected && travel > 0f, role = Role.Button, onClickLabel = label) { changeExpanded(!currentExpanded) }
+                    .semantics { contentDescription = label; stateDescription = state }
+                    .padding(top = 10.dp), contentAlignment = Alignment.TopCenter) {
+                    Icon(UiIcons.DrawerHandle, null, Modifier.size(44.dp, 4.dp), tint = if (connected) Palette.text else Palette.muted)
+                }
             }
-            Box(Modifier.align(Alignment.TopCenter).size(48.dp)
-                .clickable(interactionSource = null, indication = null, enabled = connected && travel > 0f, role = Role.Button, onClickLabel = label) { changeExpanded(!currentExpanded) }
-                .semantics { contentDescription = label; stateDescription = state }
-                .padding(top = 10.dp), contentAlignment = Alignment.TopCenter) {
-                Icon(UiIcons.DrawerHandle, null, Modifier.size(44.dp, 4.dp), tint = if (connected) Palette.text else Palette.muted)
-            }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-            if (visibleOffset > 0f) {
-                ChannelFileTools(ui)
+            Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                if (visibleOffset > 0f) {
+                    ChannelFileTools(ui, Modifier.onSizeChanged { filesHeaderHeight = it.height })
+                }
             }
         }
     }
@@ -1054,18 +1082,22 @@ private fun VoiceBar(ui: SessionUiState, requestPermissions: () -> Unit) {
             Icon(UiIcons.Wave, null, Modifier.size(18.dp), tint = if (connected) ui.snapshot.networkQuality?.iconGrade.networkColor() else Palette.muted)
             Text(if (connected) stringResource(R.string.status_connected_to_channel, ui.snapshot.channels.firstOrNull { it.id == channel }?.name.orEmpty()) else if (ui.snapshot.status in listOf("connecting", "reconnecting")) stringResource(R.string.status_connecting) else stringResource(R.string.status_disconnected), Modifier.weight(1f), fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        IconButton(onClick = {
-            haptic.performHapticFeedback(toggleHapticType(ui.microphoneMuted))
-            if (ui.microphoneMuted && !ClientSession.microphonePermission) requestPermissions()
-            else ClientSession.setAudio(inputMuted = !ui.microphoneMuted)
-        }, enabled = !ui.deafened, modifier = Modifier.size(44.dp, 48.dp)) {
-            Icon(if (muted) UiIcons.MicOff else UiIcons.Mic, stringResource(if (muted) R.string.voice_enable_microphone else R.string.voice_mute), Modifier.size(20.dp), tint = if (muted) Palette.muted else if (connected && ownClient?.speaking == true) Palette.green else Palette.text)
+        PressFeedback(AudioPressFeedback) { source, feedback, _ ->
+            IconButton(onClick = {
+                haptic.performHapticFeedback(toggleHapticType(ui.microphoneMuted))
+                if (ui.microphoneMuted && !ClientSession.microphonePermission) requestPermissions()
+                else ClientSession.setAudio(inputMuted = !ui.microphoneMuted)
+            }, enabled = !ui.deafened, interactionSource = source, modifier = Modifier.size(44.dp, 48.dp).then(feedback)) {
+                Icon(if (muted) UiIcons.MicOff else UiIcons.Mic, stringResource(if (muted) R.string.voice_enable_microphone else R.string.voice_mute), Modifier.size(20.dp).alpha(if (ui.deafened) 0.5f else 1f), tint = if (muted) Palette.muted else if (connected && ownClient?.speaking == true) Palette.green else Palette.text)
+            }
         }
-        IconButton(onClick = {
-            haptic.performHapticFeedback(toggleHapticType(ui.deafened))
-            ClientSession.setAudio(deafened = !ui.deafened)
-        }, modifier = Modifier.size(44.dp, 48.dp)) {
-            Icon(if (ui.deafened) UiIcons.SpeakerOff else UiIcons.Speaker, stringResource(if (ui.deafened) R.string.voice_enable_listening else R.string.voice_disable_listening), Modifier.size(22.dp), tint = if (ui.deafened) Palette.muted else Palette.text)
+        PressFeedback(AudioPressFeedback) { source, feedback, _ ->
+            IconButton(onClick = {
+                haptic.performHapticFeedback(toggleHapticType(ui.deafened))
+                ClientSession.setAudio(deafened = !ui.deafened)
+            }, interactionSource = source, modifier = Modifier.size(44.dp, 48.dp).then(feedback)) {
+                Icon(if (ui.deafened) UiIcons.SpeakerOff else UiIcons.Speaker, stringResource(if (ui.deafened) R.string.voice_enable_listening else R.string.voice_disable_listening), Modifier.size(22.dp), tint = if (ui.deafened) Palette.muted else Palette.text)
+            }
         }
     }
 }
@@ -1136,12 +1168,14 @@ private fun ChatScreen(target: ChatTarget, ui: SessionUiState, active: Boolean, 
                 .then(if (input.toByteArray().size > 8192) Modifier.border(1.dp, Palette.disconnect, RoundedCornerShape(5.dp)) else Modifier).padding(horizontal = 7.dp, vertical = 6.dp),
                 textStyle = androidx.compose.ui.text.TextStyle(color = Palette.text, fontSize = 17.sp, lineHeight = 20.sp), cursorBrush = SolidColor(Palette.accent), maxLines = 4,
                 decorationBox = { field -> Box { if (input.isEmpty()) Text(stringResource(R.string.chat_input_placeholder), color = Color(0xFF646468), fontSize = 17.sp, lineHeight = 20.sp); field() } })
-            IconButton(enabled = valid, onClick = {
-                val sent = target.channel?.let { ClientSession.sendChannelMessage(it, input) }
-                    ?: target.member?.let { ClientSession.sendPrivateMessage(it, input) } ?: false
-                if (sent) input = ""
-            }, modifier = Modifier.size(38.dp)) {
-                Icon(UiIcons.Send, stringResource(R.string.action_send), Modifier.size(22.dp), tint = if (valid) Palette.text else Palette.muted)
+            PressFeedback(ToolbarPressFeedback) { source, feedback, _ ->
+                IconButton(interactionSource = source, enabled = valid, onClick = {
+                    val sent = target.channel?.let { ClientSession.sendChannelMessage(it, input) }
+                        ?: target.member?.let { ClientSession.sendPrivateMessage(it, input) } ?: false
+                    if (sent) input = ""
+                }, modifier = Modifier.size(38.dp).then(feedback)) {
+                    Icon(UiIcons.Send, stringResource(R.string.action_send), Modifier.size(22.dp), tint = if (valid) Palette.text else Palette.muted)
+                }
             }
         }
     }
@@ -1150,7 +1184,7 @@ private fun ChatScreen(target: ChatTarget, ui: SessionUiState, active: Boolean, 
 @Composable
 internal fun RowScope.NavigationItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, unread: Int, onClick: () -> Unit) {
     val color = if (selected) Palette.accent else Palette.muted
-    Column(Modifier.weight(1f).heightIn(min = 44.dp).selectable(selected, interactionSource = null, indication = null, role = Role.Tab, onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(Modifier.weight(1f).heightIn(min = 44.dp).selectable(selected, interactionSource = null, indication = ToolbarPressFeedback, role = Role.Tab, onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Box {
             Icon(icon, null, Modifier.size(22.dp), tint = color)
             UnreadBadge(unread, Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-7).dp))

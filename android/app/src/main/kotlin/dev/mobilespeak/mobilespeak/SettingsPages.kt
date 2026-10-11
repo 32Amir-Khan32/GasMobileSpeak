@@ -2,6 +2,7 @@ package dev.mobilespeak.mobilespeak
 
 import android.content.Intent
 import androidx.core.net.toUri
+import androidx.compose.foundation.Indication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,9 +27,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-internal fun SettingsEntry(title: String, value: String? = null, onClickLabel: String = title, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.card)
-        .clickable(interactionSource = null, indication = null, role = Role.Button, onClickLabel = onClickLabel, onClick = onClick)
+internal fun SettingsEntry(title: String, value: String? = null, onClickLabel: String = title, pressFeedback: Indication? = RowPressFeedback, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+        .clickable(interactionSource = null, indication = pressFeedback, role = Role.Button, onClickLabel = onClickLabel, onClick = onClick)
+        .background(Palette.card)
         .semantics { if (value != null) stateDescription = value }
         .heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -64,7 +66,7 @@ internal fun SettingsDetailPage(page: String, onBack: () -> Unit, onModal: (Bool
                     AppLanguage.entries.forEachIndexed { index, option ->
                         if (index > 0) HorizontalDivider(Modifier.padding(start = 16.dp), color = Palette.border)
                         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                            .selectable(selected == option, interactionSource = null, indication = null, role = Role.RadioButton) { AppLanguage.select(option) }
+                            .selectable(selected == option, interactionSource = null, indication = RowPressFeedback, role = Role.RadioButton) { AppLanguage.select(option) }
                             .padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(stringResource(option.title), Modifier.weight(1f), fontSize = 17.sp, lineHeight = 22.sp)
                             if (selected == option) Icon(UiIcons.Check, null, Modifier.size(20.dp), tint = Palette.accent)
@@ -83,7 +85,7 @@ internal fun SettingsDetailPage(page: String, onBack: () -> Unit, onModal: (Bool
                     Text(stringResource(R.string.about_version), Modifier.weight(1f))
                     Text("v" + AppUpdates.installedVersion(), color = Palette.muted)
                 }
-                SettingsEntry(stringResource(if (updates.checking) R.string.update_checking else R.string.update_check)) { AppUpdates.check(manual = true) }
+                SettingsEntry(stringResource(if (updates.checking) R.string.update_checking else R.string.update_check), pressFeedback = null) { AppUpdates.check(manual = true) }
                 updates.result?.let { result ->
                     Text(stringResource(result.message, result.version) + result.detail.takeIf { it.isNotEmpty() }?.let { " ($it)" }.orEmpty(), color = Palette.muted)
                     if (result.asset != null && UpdatePolicy.downloadAllowed(updates.download, updates.downloadVersion, result.version)) {

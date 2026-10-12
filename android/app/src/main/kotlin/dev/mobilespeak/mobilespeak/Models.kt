@@ -174,6 +174,7 @@ data class SessionUiState(
     val pushToTalkEnabled: Boolean = false,
     val pushToTalkPressed: Boolean = false,
     val microphoneGain: Float = 1.0f,
+    val microphoneLevel: Float = 0.0f,
     val floatingPushToTalkEnabled: Boolean = false,
     val noiseSuppression: String = "rnnoise",
     val appliedNoise: String = "rnnoise",

@@ -258,7 +258,8 @@ internal object ClientSession {
     fun setFloatingPushToTalkEnabled(enabled: Boolean) {
         context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE).edit { putBoolean("floating_ptt_enabled", enabled) }
         mutableState.update { it.copy(floatingPushToTalkEnabled = enabled) }
-        syncFloatingPushToTalkOverlay()
+        val canDraw = android.os.Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(context)
+        if (!enabled || canDraw) syncFloatingPushToTalkOverlay()
     }
 
     fun syncFloatingPushToTalkOverlay() {

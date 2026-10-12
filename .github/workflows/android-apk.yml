@@ -1,0 +1,72 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "APK build type"
+        required: true
+        type: choice
+        options:
+          - debug
+          - release
+        default: debug
+  push:
+    paths:
+      - "**.gradle"
+      - "**.gradle.kts"
+      - "gradle/**"
+      - "app/**"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ inputs.build_type || 'debug' }} APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        shell: bash
+        run: |
+          if [ ! -f ./gradlew ]; then
+            echo "::error::Gradle wrapper (./gradlew) was not found in repository root."
+            exit 1
+          fi
+          chmod +x ./gradlew
+
+      - name: Build debug APK
+        if: ${{ (inputs.build_type || 'debug') == 'debug' }}
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Build release APK
+        if: ${{ inputs.build_type == 'release' }}
+        run: ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GasMobileSpeak-${{ inputs.build_type || 'debug' }}-apk
+          path: |
+            **/build/outputs/apk/debug/*.apk
+            **/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14

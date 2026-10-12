@@ -604,7 +604,9 @@ internal object ClientSession {
         } finally { synchronized(fileCacheLock) { mutableState.update { it.copy(fileImporting = false) } } }
     }
 
-    fun captureStopped() { if (initialized) send(JSONObject().put("type", "capture_stopped")) }
+    fun captureStopped() { mutableState.update { it.copy(microphoneLevel = 0f) }; if (initialized) send(JSONObject().put("type", "capture_stopped")) }
+
+    fun updateMicrophoneLevel(level: Float) { mutableState.update { it.copy(microphoneLevel = level.coerceIn(0f, 1f)) } }
 
     fun capture(samples: ShortArray): Int = NativeCore.capture(handle, samples)
     fun openOutput(channels: Int, communication: Boolean, notification: Runnable): Long =

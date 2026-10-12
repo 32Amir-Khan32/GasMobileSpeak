@@ -53,7 +53,11 @@ internal object ClientSession {
             if (initialized) return
             context = applicationContext.applicationContext
             store = SecureStore(context)
-            val noise = restoreNoiseSuppression(context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE))
+            val settings = context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE)
+            val noise = restoreNoiseSuppression(settings)
+            val pttEnabled = settings.getBoolean("ptt_enabled", false)
+            val micGain = settings.getFloat("microphone_gain", 1.0f).coerceIn(0.5f, 3.0f)
+            val floatingPtt = settings.getBoolean("floating_ptt_enabled", false)
             val root = File(context.filesDir, "core")
             val preview = File(root, AvatarImages.previewName)
             val upload = File(root, AvatarImages.uploadName)
@@ -62,7 +66,9 @@ internal object ClientSession {
             mutableState.value = mutableState.value.copy(
                 bookmarks = runCatching { store.bookmarks() }.getOrDefault(emptyList()),
                 noiseSuppression = noise, audioProcessingStatus = "switching",
-                microphoneMuted = !microphonePermission,
+                microphoneMuted = !microphonePermission || pttEnabled,
+                pushToTalkEnabled = pttEnabled, microphoneGain = micGain,
+                floatingPushToTalkEnabled = floatingPtt,
                 error = store.readError,
                 avatarPreviewPath = if (currentPreview?.isFile == true) currentPreview.absolutePath
                 else if (!File(root, AvatarImages.currentName).exists() && preview.isFile && upload.isFile) {
@@ -205,7 +211,7 @@ internal object ClientSession {
         val wasGranted = microphonePermission
         microphonePermission = granted
         if (!granted) setAudio(inputMuted = true)
-        else if (!wasGranted) setAudio(inputMuted = false)
+        else if (!wasGranted) setAudio(inputMuted = state.value.pushToTalkEnabled)
     }
 
     fun setAudio(inputMuted: Boolean? = null, deafened: Boolean? = null) {
@@ -219,6 +225,50 @@ internal object ClientSession {
         mutableState.update { it.copy(microphoneMuted = nextInput, deafened = nextOutput) }
         if (old.snapshot.canApplyAudioState()) {
             send(JSONObject().put("type", "mute").put("input", nextInput || nextOutput).put("output", nextOutput))
+        }
+    }
+
+    fun setPushToTalkEnabled(enabled: Boolean) {
+        context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE).edit { putBoolean("ptt_enabled", enabled) }
+        mutableState.update { it.copy(pushToTalkEnabled = enabled, pushToTalkPressed = false) }
+        if (enabled) setAudio(inputMuted = true) else setAudio(inputMuted = false)
+    }
+
+    fun setPushToTalkPressed(pressed: Boolean) {
+        val current = state.value
+        if (!current.pushToTalkEnabled || current.pushToTalkPressed == pressed) return
+        if (pressed && (!microphonePermission || current.deafened || current.snapshot.status != "connected")) return
+        mutableState.update { it.copy(pushToTalkPressed = pressed) }
+        setAudio(inputMuted = !pressed)
+        if (pressed) {
+            runCatching {
+                androidx.core.content.ContextCompat.startForegroundService(
+                    context, Intent(context, VoiceService::class.java).setAction(VoiceService.ACTION_START_CALL),
+                )
+            }
+        }
+    }
+
+    fun setMicrophoneGain(gain: Float) {
+        val value = gain.coerceIn(0.5f, 3.0f)
+        context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE).edit { putFloat("microphone_gain", value) }
+        mutableState.update { it.copy(microphoneGain = value) }
+    }
+
+    fun setFloatingPushToTalkEnabled(enabled: Boolean) {
+        context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE).edit { putBoolean("floating_ptt_enabled", enabled) }
+        mutableState.update { it.copy(floatingPushToTalkEnabled = enabled) }
+        syncFloatingPushToTalkOverlay()
+    }
+
+    fun syncFloatingPushToTalkOverlay() {
+        val enabled = state.value.floatingPushToTalkEnabled
+        val canDraw = android.os.Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(context)
+        if (enabled && canDraw) {
+            runCatching { context.startService(Intent(context, FloatingPttService::class.java)) }
+        } else {
+            runCatching { context.stopService(Intent(context, FloatingPttService::class.java)) }
+            if (enabled && !canDraw) fail("Allow display over other apps to use the floating push-to-talk button.")
         }
     }
 

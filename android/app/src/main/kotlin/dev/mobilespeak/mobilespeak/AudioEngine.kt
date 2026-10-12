@@ -27,6 +27,7 @@ import androidx.core.content.ContextCompat
 import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
+import kotlin.math.sqrt
 
 internal class AudioEngine(private val context: Context) {
     private val manager = context.getSystemService(AudioManager::class.java)
@@ -229,6 +230,14 @@ internal class AudioEngine(private val context: Context) {
                             if (gain != 1.0f) for (i in capture.indices) capture[i] = (capture[i].toFloat() * gain).coerceIn(Short.MIN_VALUE.toFloat(), Short.MAX_VALUE.toFloat()).toInt().toShort()
                             val result = ClientSession.capture(capture)
                             submittedCaptureFrames++
+                            if (submittedCaptureFrames % 5L == 0L) {
+                                var energy = 0.0
+                                for (sample in capture) {
+                                    val normalized = sample.toDouble() / Short.MAX_VALUE
+                                    energy += normalized * normalized
+                                }
+                                ClientSession.updateMicrophoneLevel((sqrt(energy / capture.size) * 4.0).toFloat().coerceIn(0f, 1f))
+                            }
                             if (submittedCaptureFrames % CAPTURE_LOG_INTERVAL_FRAMES == 0L) {
                                 Log.i(TAG, "Microphone submitted frames=$submittedCaptureFrames samples=${capture.size} sampleRate=$SAMPLE_RATE result=$result")
                             }

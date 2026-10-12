@@ -1,7 +1,10 @@
 package dev.mobilespeak.mobilespeak
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.content.pm.PackageManager
+import android.provider.Settings
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
@@ -72,6 +75,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.waitForUpOrCancellation
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.testTag
@@ -171,6 +175,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        ClientSession.syncFloatingPushToTalkOverlay()
         AppUpdates.onForeground()
     }
 
@@ -761,6 +766,7 @@ private fun MemberRow(member: Member, modifier: Modifier = Modifier, unread: Int
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, onPage: (String) -> Unit) {
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     var avatarClearPresented by rememberSaveable { mutableStateOf(false) }
     var avatarUri by rememberSaveable { mutableStateOf<String?>(null) }
     var avatarSelection by rememberSaveable { mutableStateOf(0L) }
@@ -834,7 +840,28 @@ internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, 
                         fontSize = 13.sp, lineHeight = 17.sp, color = if (ui.avatarStatus in listOf("failed", "clear_failed", "clear_save_failed")) Palette.disconnect else Palette.muted)
                 }
             }
-            SettingSwitch(stringResource(R.string.settings_microphone), !ui.microphoneMuted, !ui.deafened) { enabled ->
+            SettingSwitch(stringResource(R.string.settings_ptt), ui.pushToTalkEnabled) { enabled ->
+                if (enabled && !ClientSession.microphonePermission) requestPermissions()
+                else ClientSession.setPushToTalkEnabled(enabled)
+            }
+            Text(stringResource(R.string.settings_ptt_help), fontSize = 13.sp, lineHeight = 16.sp, color = Palette.muted)
+            SettingSwitch(stringResource(R.string.settings_floating_ptt), ui.floatingPushToTalkEnabled) { enabled ->
+                if (enabled && Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(context)) {
+                    context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+                } else {
+                    if (enabled && !ui.pushToTalkEnabled) ClientSession.setPushToTalkEnabled(true)
+                    ClientSession.setFloatingPushToTalkEnabled(enabled)
+                }
+            }
+            Text(stringResource(R.string.settings_floating_ptt_help), fontSize = 13.sp, lineHeight = 16.sp, color = Palette.muted)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.settings_mic_gain), Modifier.weight(1f), fontSize = 17.sp, lineHeight = 20.sp)
+                    Text("${(ui.microphoneGain * 100).toInt()}%", color = Palette.muted, fontSize = 14.sp)
+                }
+                Slider(value = ui.microphoneGain, onValueChange = ClientSession::setMicrophoneGain, valueRange = 0.5f..3.0f, steps = 4)
+            }
+            SettingSwitch(stringResource(R.string.settings_microphone), !ui.microphoneMuted, !ui.deafened && !ui.pushToTalkEnabled) { enabled ->
                 if (enabled && !ClientSession.microphonePermission) requestPermissions()
                 else ClientSession.setAudio(inputMuted = !enabled)
             }
@@ -1082,13 +1109,32 @@ private fun VoiceBar(ui: SessionUiState, requestPermissions: () -> Unit) {
             Icon(UiIcons.Wave, null, Modifier.size(18.dp), tint = if (connected) ui.snapshot.networkQuality?.iconGrade.networkColor() else Palette.muted)
             Text(if (connected) stringResource(R.string.status_connected_to_channel, ui.snapshot.channels.firstOrNull { it.id == channel }?.name.orEmpty()) else if (ui.snapshot.status in listOf("connecting", "reconnecting")) stringResource(R.string.status_connecting) else stringResource(R.string.status_disconnected), Modifier.weight(1f), fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        PressFeedback(AudioPressFeedback) { source, feedback, _ ->
-            IconButton(onClick = {
-                haptic.performHapticFeedback(toggleHapticType(ui.microphoneMuted))
-                if (ui.microphoneMuted && !ClientSession.microphonePermission) requestPermissions()
-                else ClientSession.setAudio(inputMuted = !ui.microphoneMuted)
-            }, enabled = !ui.deafened, interactionSource = source, modifier = Modifier.size(44.dp, 48.dp).then(feedback)) {
-                Icon(if (muted) UiIcons.MicOff else UiIcons.Mic, stringResource(if (muted) R.string.voice_enable_microphone else R.string.voice_mute), Modifier.size(20.dp).alpha(if (ui.deafened) 0.5f else 1f), tint = if (muted) Palette.muted else if (connected && ownClient?.speaking == true) Palette.green else Palette.text)
+        if (ui.pushToTalkEnabled) {
+            Box(
+                Modifier.size(44.dp, 48.dp).clip(RoundedCornerShape(12.dp))
+                    .background(if (ui.pushToTalkPressed) Palette.green else Palette.accent)
+                    .pointerInput(ui.pushToTalkEnabled, ui.deafened, connected) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            if (!ClientSession.microphonePermission) requestPermissions()
+                            else ClientSession.setPushToTalkPressed(true)
+                            waitForUpOrCancellation()
+                            ClientSession.setPushToTalkPressed(false)
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(UiIcons.Mic, stringResource(R.string.ptt_hold_to_talk), Modifier.size(22.dp), tint = Palette.text)
+            }
+        } else {
+            PressFeedback(AudioPressFeedback) { source, feedback, _ ->
+                IconButton(onClick = {
+                    haptic.performHapticFeedback(toggleHapticType(ui.microphoneMuted))
+                    if (ui.microphoneMuted && !ClientSession.microphonePermission) requestPermissions()
+                    else ClientSession.setAudio(inputMuted = !ui.microphoneMuted)
+                }, enabled = !ui.deafened, interactionSource = source, modifier = Modifier.size(44.dp, 48.dp).then(feedback)) {
+                    Icon(if (muted) UiIcons.MicOff else UiIcons.Mic, stringResource(if (muted) R.string.voice_enable_microphone else R.string.voice_mute), Modifier.size(20.dp).alpha(if (ui.deafened) 0.5f else 1f), tint = if (muted) Palette.muted else if (connected && ownClient?.speaking == true) Palette.green else Palette.text)
+                }
             }
         }
         PressFeedback(AudioPressFeedback) { source, feedback, _ ->

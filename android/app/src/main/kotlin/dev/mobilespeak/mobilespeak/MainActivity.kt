@@ -903,6 +903,11 @@ internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, 
                     Text("${(ui.microphoneGain * 100).toInt()}%", color = Palette.muted, fontSize = 14.sp)
                 }
                 Slider(value = ui.microphoneGain, onValueChange = ClientSession::setMicrophoneGain, valueRange = 0.5f..3.0f, steps = 4)
+                Text("Live microphone level", color = Palette.muted, fontSize = 13.sp)
+                Box(Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(Palette.card)) {
+                    Box(Modifier.fillMaxWidth(ui.microphoneLevel).fillMaxHeight().background(Palette.green))
+                }
+                Text("Speak while connected, or hold PTT, to check the input level.", color = Palette.muted, fontSize = 12.sp, lineHeight = 15.sp)
             }
             SettingSwitch(stringResource(R.string.settings_microphone), !ui.microphoneMuted, !ui.deafened && !ui.pushToTalkEnabled) { enabled ->
                 if (enabled && !ClientSession.microphonePermission) requestPermissions()

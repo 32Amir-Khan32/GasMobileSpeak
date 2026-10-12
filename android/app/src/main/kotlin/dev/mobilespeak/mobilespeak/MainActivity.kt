@@ -841,12 +841,16 @@ internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, 
                 }
             }
             SettingSwitch(stringResource(R.string.settings_ptt), ui.pushToTalkEnabled) { enabled ->
-                if (enabled && !ClientSession.microphonePermission) requestPermissions()
-                else ClientSession.setPushToTalkEnabled(enabled)
+                if (enabled && !ClientSession.microphonePermission) {
+                    ClientSession.setPushToTalkEnabled(true)
+                    requestPermissions()
+                } else ClientSession.setPushToTalkEnabled(enabled)
             }
             Text(stringResource(R.string.settings_ptt_help), fontSize = 13.sp, lineHeight = 16.sp, color = Palette.muted)
             SettingSwitch(stringResource(R.string.settings_floating_ptt), ui.floatingPushToTalkEnabled) { enabled ->
                 if (enabled && Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(context)) {
+                    if (!ui.pushToTalkEnabled) ClientSession.setPushToTalkEnabled(true)
+                    ClientSession.setFloatingPushToTalkEnabled(true)
                     context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
                 } else {
                     if (enabled && !ui.pushToTalkEnabled) ClientSession.setPushToTalkEnabled(true)

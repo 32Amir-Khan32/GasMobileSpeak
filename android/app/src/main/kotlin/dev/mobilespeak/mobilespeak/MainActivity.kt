@@ -99,6 +99,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -735,16 +736,20 @@ internal fun MemberScreen(ui: SessionUiState, onChat: (Member) -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = pageTitleInset, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { PageTitle(stringResource(R.string.tab_members), Modifier.padding(horizontal = pageTitleInset)) }
         items(ui.snapshot.clients.filter { it.id != ui.snapshot.ownClient }, key = { it.id }) { member ->
-            MemberRow(member, Modifier.padding(horizontal = 16.dp).clickable(enabled = member.uid != null, interactionSource = null, indication = RowPressFeedback) { onChat(member) }, ui.unread.privateCounts[member.uid] ?: 0)
+            MemberRow(member, Modifier.padding(horizontal = 16.dp).clickable(enabled = member.uid != null, interactionSource = null, indication = RowPressFeedback) { onChat(member) }, ui.unread.privateCounts[member.uid] ?: 0, onChat = { onChat(member) })
         }
     }
 }
 
 @Composable
-private fun MemberRow(member: Member, modifier: Modifier = Modifier, unread: Int = 0) {
+private fun MemberRow(member: Member, modifier: Modifier = Modifier, unread: Int = 0, onChat: (() -> Unit)? = null) {
     val badges = member.badges.filter { it.iconPath != null }.take(4)
     val group = member.channelGroupIcon?.takeIf { it.iconPath != null || it.iconId in listOf(100L, 300L) }
     val groups = member.serverGroupIcons.filter { it.iconPath != null || it.iconId in listOf(100L, 300L) }.take((5 - badges.size - if (group == null) 0 else 1).coerceAtLeast(0))
+    val context = LocalContext.current
+    var menuExpanded by remember(member.id) { mutableStateOf(false) }
+    var volumeDialog by remember(member.id) { mutableStateOf(false) }
+    var localVolume by remember(member.id) { mutableFloatStateOf(ClientSession.clientVolume(member)) }
     Row(modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Box {
             Avatar(member.name, member.avatarPath, member.speaking, 34)
@@ -759,7 +764,41 @@ private fun MemberRow(member: Member, modifier: Modifier = Modifier, unread: Int
         Icon(if (member.deafened) UiIcons.SpeakerOff else if (member.muted) UiIcons.MicOff else UiIcons.Mic,
             stringResource(if (member.deafened) R.string.member_listening_off else if (member.muted) R.string.member_muted else if (member.speaking) R.string.member_speaking else R.string.member_microphone_on),
             Modifier.size(20.dp), tint = if (member.speaking) Palette.green else Palette.muted)
+        Box {
+            IconButton(onClick = { localVolume = ClientSession.clientVolume(member); menuExpanded = true }, modifier = Modifier.size(36.dp)) {
+                Icon(UiIcons.More, "Member actions", tint = Palette.muted, modifier = Modifier.size(20.dp))
+            }
+            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }, containerColor = Palette.card) {
+                if (onChat != null) DropdownMenuItem(text = { Text("Private message") }, onClick = { menuExpanded = false; onChat() })
+                DropdownMenuItem(text = { Text(if (ClientSession.clientVolume(member) <= 0f) "Unmute locally" else "Mute locally") }, onClick = {
+                    val current = ClientSession.clientVolume(member)
+                    val next = if (current <= 0f) 1.0f else 0.0f
+                    ClientSession.setClientVolume(member, next)
+                    localVolume = next
+                    menuExpanded = false
+                })
+                DropdownMenuItem(text = { Text("Adjust local volume…") }, onClick = { menuExpanded = false; volumeDialog = true })
+                if (member.uid != null) DropdownMenuItem(text = { Text("Copy client UID") }, onClick = {
+                    context.getSystemService(android.content.ClipboardManager::class.java)
+                        ?.setPrimaryClip(android.content.ClipData.newPlainText("Client UID", member.uid))
+                    menuExpanded = false
+                })
+            }
+        }
     }
+    if (volumeDialog) AlertDialog(
+        onDismissRequest = { volumeDialog = false },
+        title = { Text("Local volume for " + member.name) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (localVolume <= 0f) "Muted on this device" else (localVolume * 100).toInt().toString() + "%")
+                Slider(value = localVolume, onValueChange = { localVolume = it }, valueRange = 0f..2f, steps = 7)
+            }
+        },
+        confirmButton = { TextButton(onClick = { ClientSession.setClientVolume(member, localVolume); volumeDialog = false }) { Text(stringResource(R.string.action_save)) } },
+        dismissButton = { TextButton(onClick = { volumeDialog = false }) { Text(stringResource(R.string.action_cancel)) } },
+        containerColor = Palette.card, titleContentColor = Palette.text, textContentColor = Palette.text,
+    )
 }
 
 @Composable

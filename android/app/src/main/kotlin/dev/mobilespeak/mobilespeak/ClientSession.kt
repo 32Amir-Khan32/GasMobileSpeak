@@ -268,7 +268,11 @@ internal object ClientSession {
             runCatching { context.startService(Intent(context, FloatingPttService::class.java)) }
         } else {
             runCatching { context.stopService(Intent(context, FloatingPttService::class.java)) }
-            if (enabled && !canDraw) fail("Allow display over other apps to use the floating push-to-talk button.")
+            if (enabled && !canDraw) {
+                context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE).edit { putBoolean("floating_ptt_enabled", false) }
+                mutableState.update { it.copy(floatingPushToTalkEnabled = false) }
+                fail("Allow display over other apps to use the floating push-to-talk button.")
+            }
         }
     }
 

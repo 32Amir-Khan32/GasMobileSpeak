@@ -264,4 +264,10 @@
     <string name="files_cache_clear_failed">Some file cache could not be cleared. Please try again.</string>
     <string name="files_cache_cleared">Cleared %1$s</string>
     <string name="files_cache_reload">Recalculate</string>
+    <string name="settings_ptt">Push-to-talk</string>
+    <string name="settings_ptt_help">Hold the microphone button in the bottom bar to transmit; releasing it mutes your microphone.</string>
+    <string name="settings_floating_ptt">Floating push-to-talk button</string>
+    <string name="settings_floating_ptt_help">Show a draggable button over other apps. Android will ask you to allow display over other apps.</string>
+    <string name="settings_mic_gain">Microphone sensitivity / gain</string>
+    <string name="ptt_hold_to_talk">Hold to talk</string>
 </resources>

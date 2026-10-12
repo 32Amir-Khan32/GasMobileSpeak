@@ -263,4 +263,10 @@
     <string name="files_cache_clear_failed">未能完整清理文件缓存，请重试。</string>
     <string name="files_cache_cleared">已清理 %1$s</string>
     <string name="files_cache_reload">重新读取</string>
+    <string name="settings_ptt">按键通话</string>
+    <string name="settings_ptt_help">按住底部麦克风按钮说话，松开后自动静音。</string>
+    <string name="settings_floating_ptt">悬浮按键通话按钮</string>
+    <string name="settings_floating_ptt_help">在其他应用上显示可拖动按钮。Android 会请求“显示在其他应用上层”权限。</string>
+    <string name="settings_mic_gain">麦克风灵敏度 / 增益</string>
+    <string name="ptt_hold_to_talk">按住说话</string>
 </resources>

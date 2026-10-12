@@ -72,6 +72,10 @@ pub enum Command {
         input: bool,
         output: bool,
     },
+    SetClientVolume {
+        client: u16,
+        volume: f32,
+    },
     CaptureStopped,
     #[serde(alias = "set_audio_processing")]
     SetNoiseSuppression {
@@ -225,6 +229,9 @@ impl Command {
             }
             Self::Join { channel, password } if *channel == 0 || password.len() > 1024 => {
                 Err("Invalid channel")
+            }
+            Self::SetClientVolume { client, volume } if *client == 0 || !volume.is_finite() || !(0.0..=3.0).contains(volume) => {
+                Err("Invalid client volume")
             }
             Self::SendChannelMessage {
                 request_id,
@@ -1401,6 +1408,7 @@ async fn session(
         connection_started.elapsed().as_millis()
     );
     let mut audio = AudioHandler::new();
+    let mut client_volumes = HashMap::<u16, f32>::new();
     let mut receive_traces = HashMap::<tsclientlib::ClientId, playback::ReceiveTrace>::new();
     let audio_trace_start = Instant::now();
     invalidate_capture(processor, capture_epoch);
@@ -1638,6 +1646,9 @@ async fn session(
                         let now = Instant::now();
                         match audio.handle_packet(from, packet) {
                             Ok(started) => {
+                                if let Some(volume) = client_volumes.get(&from.0) {
+                                    if let Some(queue) = audio.get_mut_queues().get_mut(&from) { queue.volume = *volume; }
+                                }
                                 if started.is_some() {
                                     receive_traces.insert(from, playback::ReceiveTrace::new(now));
                                     diagnostic!("Playback receive_start at_ms={} client={} sequence={}", audio_trace_start.elapsed().as_millis(), from.0, sequence);
@@ -1881,6 +1892,10 @@ async fn session(
                     invalidate_capture(processor, capture_epoch); let _ = voice.interrupt(|codec, data| send_voice(&mut con, codec, data));
                     while pcm.try_recv().is_ok() {}
                     snapshot(&con, out, &audio, false, storage.as_deref());
+                },
+                Some(Command::SetClientVolume { client, volume }) => {
+                    client_volumes.insert(client, volume);
+                    if let Some(queue) = audio.get_mut_queues().get_mut(&tsclientlib::ClientId(client)) { queue.volume = volume; }
                 },
                 Some(Command::SetNoiseSuppression { mode, request_id }) => { processing.request_id=request_id; processing.requested.noise=mode; processing.request(processor,out); },
                 Some(Command::SendChannelMessage { request_id, channel, message }) => {

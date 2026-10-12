@@ -225,6 +225,8 @@ internal class AudioEngine(private val context: Context) {
                     read > 0 && running.get() && shouldCapture() && seenCapture == captureVersion -> {
                         captureOffset += read
                         if (captureOffset == capture.size) {
+                            val gain = ClientSession.state.value.microphoneGain
+                            if (gain != 1.0f) for (i in capture.indices) capture[i] = (capture[i].toFloat() * gain).coerceIn(Short.MIN_VALUE.toFloat(), Short.MAX_VALUE.toFloat()).toInt().toShort()
                             val result = ClientSession.capture(capture)
                             submittedCaptureFrames++
                             if (submittedCaptureFrames % CAPTURE_LOG_INTERVAL_FRAMES == 0L) {

@@ -42,6 +42,7 @@ internal object ClientSession {
     private var fileCacheRequest = 0L
     private var fileCacheClearRequest: Long? = null
     private var activeBookmarkId: String? = null
+    private val clientVolumeBindings = HashMap<String, Long>()
     @Volatile private var acceptingConnection = false
     val appActive = mutableAppActive.asStateFlow()
     @Volatile var microphonePermission = false
@@ -277,6 +278,23 @@ internal object ClientSession {
         }
     }
 
+    fun clientVolume(member: Member): Float {
+        val uid = member.uid ?: return 1.0f
+        return context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE)
+            .getFloat("client_volume_$uid", 1.0f).coerceIn(0.0f, 3.0f)
+    }
+
+    fun setClientVolume(member: Member, volume: Float) {
+        val value = volume.coerceIn(0.0f, 3.0f)
+        val uid = member.uid ?: return
+        context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE).edit {
+            putFloat("client_volume_$uid", value)
+        }
+        if (state.value.snapshot.status == "connected") {
+            send(JSONObject().put("type", "set_client_volume").put("client", member.id).put("volume", value.toDouble()))
+        }
+    }
+
     fun setNoiseSuppression(mode: String) {
         if (mode !in setOf("dpdfnet2", "rnnoise", "none")) return
         // Core notifications arrive on another executor, including very fast RNNoise/None loads.
@@ -470,6 +488,19 @@ internal object ClientSession {
         }
         envelope.optJSONObject("fileCache")?.let { cache -> mutableState.update { it.copy(fileCache = cache.fileCache()) } }
         val nextSnapshot = envelope.getJSONObject("snapshot").snapshot()
+        if (nextSnapshot.status == "connected") {
+            val preferences = context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE)
+            nextSnapshot.clients.forEach { member ->
+                val uid = member.uid
+                if (uid != null && clientVolumeBindings[uid] != member.id) {
+                    clientVolumeBindings[uid] = member.id
+                    val volume = preferences.getFloat("client_volume_$uid", 1.0f).coerceIn(0.0f, 3.0f)
+                    if (volume != 1.0f) send(JSONObject().put("type", "set_client_volume").put("client", member.id).put("volume", volume.toDouble()))
+                }
+            }
+        } else if (nextSnapshot.status == "disconnected") {
+            clientVolumeBindings.clear()
+        }
         if (!acceptingConnection && nextSnapshot.status != "disconnected") return
         val chats = if (envelope.get("chats") == JSONObject.NULL) null else envelope.getJSONArray("chats").objects().map {
             ChatMessage(

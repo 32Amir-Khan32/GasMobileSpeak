@@ -16,7 +16,7 @@ on:
       - "**.gradle"
       - "**.gradle.kts"
       - "gradle/**"
-      - "app/**"
+      - "android/**"
       - ".github/workflows/android-apk.yml"
 
 permissions:
@@ -31,6 +31,9 @@ jobs:
     name: Build ${{ inputs.build_type || 'debug' }} APK
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: android
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -48,7 +51,7 @@ jobs:
         shell: bash
         run: |
           if [ ! -f ./gradlew ]; then
-            echo "::error::Gradle wrapper (./gradlew) was not found in repository root."
+            echo "::error::Gradle wrapper (android/gradlew) was not found."
             exit 1
           fi
           chmod +x ./gradlew
@@ -66,7 +69,7 @@ jobs:
         with:
           name: GasMobileSpeak-${{ inputs.build_type || 'debug' }}-apk
           path: |
-            **/build/outputs/apk/debug/*.apk
-            **/build/outputs/apk/release/*.apk
+            android/**/build/outputs/apk/debug/*.apk
+            android/**/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14

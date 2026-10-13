@@ -259,7 +259,13 @@ internal object ClientSession {
         val wasGranted = microphonePermission
         microphonePermission = granted
         if (!granted) setAudio(inputMuted = true)
-        else if (!wasGranted) setAudio(inputMuted = state.value.pushToTalkEnabled)
+        else if (!wasGranted) {
+            if (state.value.pushToTalkEnabled) {
+                mutableState.update { it.copy(microphoneMuted = true) }
+            } else {
+                setAudio(inputMuted = false)
+            }
+        }
     }
 
     fun setAudio(inputMuted: Boolean? = null, deafened: Boolean? = null) {
@@ -278,8 +284,7 @@ internal object ClientSession {
 
     fun setPushToTalkEnabled(enabled: Boolean) {
         context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE).edit { putBoolean("ptt_enabled", enabled) }
-        mutableState.update { it.copy(pushToTalkEnabled = enabled, pushToTalkPressed = false) }
-        mutableState.update { it.copy(microphoneMuted = enabled, pushToTalkPressed = false) }
+        mutableState.update { it.copy(pushToTalkEnabled = enabled, microphoneMuted = enabled, pushToTalkPressed = false) }
         send(JSONObject().put("type", "set_push_to_talk_enabled").put("enabled", enabled))
     }
 

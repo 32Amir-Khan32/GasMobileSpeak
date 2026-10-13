@@ -1901,13 +1901,12 @@ async fn session(
                         input_muted = false;
                         while pcm.try_recv().is_ok() {}
                         if subscribed {
-                            if let Ok(state) = con.get_state() {
-                                if state.clients.get(&state.own_client).is_some_and(|me| me.input_muted) {
-                                    let update = state.client_update().set_input_muted(false);
-                                    match update.send_with_result(&mut con) {
-                                        Ok(handle) => { operations.insert(handle, PendingOperation::Other("update_audio_state_failed")); },
-                                        Err(error) => report_code(out, "update_audio_state_failed", Some(error.to_string())),
-                                    }
+                            let server_muted = con.get_state()?.clients.get(&con.get_state()?.own_client).is_some_and(|me| me.input_muted);
+                            if server_muted {
+                                let update = con.get_state()?.client_update().set_input_muted(false);
+                                match update.send_with_result(&mut con) {
+                                    Ok(handle) => { operations.insert(handle, PendingOperation::Other("update_audio_state_failed")); },
+                                    Err(error) => report_code(out, "update_audio_state_failed", Some(error.to_string())),
                                 }
                             }
                         }
@@ -2026,7 +2025,7 @@ async fn session(
             Some(event) = processor.events.recv() => {
                 match event {
                     audio_processing::Event::Audio { generation, epoch, frame } => {
-                        if epoch!=processor.epoch() || generation!=processing.active_generation || !audio_send_allowed(input_muted, output_muted, subscribed, con.can_send_audio(),
+                        if epoch!=processor.epoch() || generation!=processing.active_generation || !audio_send_allowed(input_muted || (push_to_talk_enabled && !push_to_talk_active), output_muted, subscribed, con.can_send_audio(),
                             operations.values().any(|op| matches!(op, PendingOperation::Other("join_channel_failed")))) {continue}
                         // Resolve current channel/codec/permissions at consumption; no connection state leaves this loop.
                         let state=con.get_state()?;

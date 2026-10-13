@@ -17,6 +17,9 @@ on:
       - "**.gradle.kts"
       - "gradle/**"
       - "android/**"
+      - "native/**"
+      - "tool/**"
+      - "AppVersion.xcconfig"
       - ".github/workflows/android-apk.yml"
 
 permissions:

@@ -169,6 +169,52 @@ internal object ClientSession {
         mutableState.update { it.copy(avatarStatus = "failed", avatarDetail = context.localized(R.string.avatar_image_error)) }
     }
 
+    fun identityProfiles(): List<IdentityProfile> = runCatching { store.identities() }.getOrDefault(emptyList())
+
+    fun activeIdentityId(): String = runCatching { store.activeIdentityId() }.getOrDefault("")
+
+    fun activeIdentityName(): String = runCatching { store.activeIdentityName() }.getOrDefault("Default")
+
+    fun createIdentity(name: String): Boolean = runCatching { store.createIdentity(name); true }.getOrElse {
+        fail(context.localized(R.string.error_with_detail, "Could not create identity", it.message.orEmpty())); false
+    }
+
+    fun importIdentity(name: String, source: String): Boolean = runCatching {
+        val value = source.trim()
+        require(value.isNotEmpty()) { "Paste an exported identity key or an identity JSON object." }
+        val identity = if (value.startsWith("{")) JSONObject(value)
+            else JSONObject().put("__ts_identity_string", value)
+        store.createIdentity(name, identity)
+        true
+    }.getOrElse {
+        fail(context.localized(R.string.error_with_detail, "Could not import identity", it.message.orEmpty())); false
+    }
+
+    fun activateIdentity(id: String): Boolean = runCatching {
+        store.activateIdentity(id)
+        true
+    }.getOrElse {
+        fail(context.localized(R.string.error_with_detail, "Could not select identity", it.message.orEmpty())); false
+    }
+
+    fun renameIdentity(id: String, name: String): Boolean = runCatching {
+        store.renameIdentity(id, name)
+        true
+    }.getOrElse {
+        fail(context.localized(R.string.error_with_detail, "Could not rename identity", it.message.orEmpty())); false
+    }
+
+    fun deleteIdentity(id: String): Boolean = runCatching {
+        store.deleteIdentity(id)
+        true
+    }.getOrElse {
+        fail(context.localized(R.string.error_with_detail, "Could not delete identity", it.message.orEmpty())); false
+    }
+
+    fun exportIdentity(id: String): String? = runCatching {
+        store.identities().firstOrNull { it.id == id }?.value?.toString()
+    }.getOrNull()
+
     fun connect(bookmark: Bookmark) {
         if (state.value.snapshot.status != "disconnected") return
         val identity = runCatching { store.identity() }.getOrElse {
@@ -181,6 +227,7 @@ internal object ClientSession {
             .put("name", bookmark.nickname)
             .put("password", bookmark.password)
             .put("identity", identity ?: JSONObject.NULL)
+            .put("push_to_talk_enabled", state.value.pushToTalkEnabled)
         if (!send(command)) return
         activeBookmarkId = bookmark.id
         acceptingConnection = true
@@ -232,15 +279,16 @@ internal object ClientSession {
     fun setPushToTalkEnabled(enabled: Boolean) {
         context.getSharedPreferences("mobilespeak.settings", Context.MODE_PRIVATE).edit { putBoolean("ptt_enabled", enabled) }
         mutableState.update { it.copy(pushToTalkEnabled = enabled, pushToTalkPressed = false) }
-        if (enabled) setAudio(inputMuted = true) else setAudio(inputMuted = false)
+        mutableState.update { it.copy(microphoneMuted = enabled, pushToTalkPressed = false) }
+        send(JSONObject().put("type", "set_push_to_talk_enabled").put("enabled", enabled))
     }
 
     fun setPushToTalkPressed(pressed: Boolean) {
         val current = state.value
         if (!current.pushToTalkEnabled || current.pushToTalkPressed == pressed) return
         if (pressed && (!microphonePermission || current.deafened || current.snapshot.status != "connected")) return
-        mutableState.update { it.copy(pushToTalkPressed = pressed) }
-        setAudio(inputMuted = !pressed)
+        mutableState.update { it.copy(pushToTalkPressed = pressed, microphoneMuted = !pressed) }
+        send(JSONObject().put("type", "push_to_talk").put("active", pressed))
         if (pressed) {
             runCatching {
                 androidx.core.content.ContextCompat.startForegroundService(

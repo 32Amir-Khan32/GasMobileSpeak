@@ -62,6 +62,8 @@ pub enum Command {
         #[serde(default)]
         password: String,
         identity: Option<Value>,
+        #[serde(default)]
+        push_to_talk_enabled: bool,
     },
     Join {
         channel: u64,
@@ -71,6 +73,12 @@ pub enum Command {
     Mute {
         input: bool,
         output: bool,
+    },
+    SetPushToTalkEnabled {
+        enabled: bool,
+    },
+    PushToTalk {
+        active: bool,
     },
     SetClientVolume {
         client: u16,
@@ -1369,6 +1377,7 @@ async fn session(
         name,
         password,
         identity,
+        push_to_talk_enabled,
     } = first
     else {
         return Ok(false);
@@ -1384,7 +1393,13 @@ async fn session(
     out.lock().unwrap().set_unread(unread.snapshot());
     while pcm.try_recv().is_ok() {}
     let identity = match identity {
-        Some(value) => serde_json::from_value::<Identity>(value)?,
+        Some(value) => {
+            if let Some(ts_identity) = value.get("__ts_identity_string").and_then(Value::as_str) {
+                Identity::new_from_ts_str(ts_identity)?
+            } else {
+                serde_json::from_value::<Identity>(value)?
+            }
+        }
         None => Identity::create(),
     };
     diagnostic!(
@@ -1398,7 +1413,7 @@ async fn session(
         .name(name)
         .password(password)
         .identity(identity)
-        .input_muted(true)
+        .input_muted(!push_to_talk_enabled)
         .output_muted(false)
         .input_hardware_enabled(true)
         .output_hardware_enabled(true)
@@ -1414,8 +1429,10 @@ async fn session(
     invalidate_capture(processor, capture_epoch);
     let mut voice = voice::VoiceSender::new()?;
     let mut voice_channel = None;
-    let mut input_muted = true;
+    let mut input_muted = !push_to_talk_enabled;
     let mut output_muted = false;
+    let mut push_to_talk_enabled = push_to_talk_enabled;
+    let mut push_to_talk_active = false;
     let mut subscribed = false;
     let mut first_connection = true;
     let mut current_server: Option<String> = None;
@@ -1870,16 +1887,56 @@ async fn session(
                     let handle = request.send_with_result(&mut con)?;
                     operations.insert(handle, PendingOperation::Other("join_channel_failed"));
                 },
+                Some(Command::SetPushToTalkEnabled { enabled }) => {
+                    if push_to_talk_enabled != enabled {
+                        if push_to_talk_active {
+                            invalidate_capture(processor, capture_epoch);
+                            let _ = voice.interrupt(|codec, data| send_voice(&mut con, codec, data));
+                        }
+                        push_to_talk_enabled = enabled;
+                        push_to_talk_active = false;
+                        // PTT is a local capture gate, not a server mute toggle. The server sees
+                        // one unmuted state while PTT is enabled; pressing/releasing sends no
+                        // clientupdate packets and therefore cannot trigger ClientFlooding.
+                        input_muted = false;
+                        while pcm.try_recv().is_ok() {}
+                        if subscribed {
+                            if let Ok(state) = con.get_state() {
+                                if state.clients.get(&state.own_client).is_some_and(|me| me.input_muted) {
+                                    let update = state.client_update().set_input_muted(false);
+                                    match update.send_with_result(&mut con) {
+                                        Ok(handle) => { operations.insert(handle, PendingOperation::Other("update_audio_state_failed")); },
+                                        Err(error) => report_code(out, "update_audio_state_failed", Some(error.to_string())),
+                                    }
+                                }
+                            }
+                        }
+                        snapshot(&con, out, &audio, false, storage.as_deref());
+                    }
+                },
+                Some(Command::PushToTalk { active }) => {
+                    if push_to_talk_enabled && push_to_talk_active != active {
+                        push_to_talk_active = active;
+                        if !active {
+                            invalidate_capture(processor, capture_epoch);
+                            let _ = voice.interrupt(|codec, data| send_voice(&mut con, codec, data));
+                            while pcm.try_recv().is_ok() {}
+                            snapshot(&con, out, &audio, false, storage.as_deref());
+                        }
+                    }
+                },
                 Some(Command::Mute { input, output }) => {
+                    let input_changed = input_muted != input;
+                    let output_changed = output_muted != output;
                     if input || output { invalidate_capture(processor, capture_epoch); let _ = voice.interrupt(|codec, data| send_voice(&mut con, codec, data)); }
-                    if output_muted != output { audio.reset(); receive_traces.clear(); playback.clear(); playback.request(); }
+                    if output_changed { audio.reset(); receive_traces.clear(); playback.clear(); playback.request(); }
                     input_muted = input; output_muted = output;
                     while pcm.try_recv().is_ok() {}
                     snapshot(&con, out, &audio, voice.speaking(), storage.as_deref());
-                    if subscribed {
-                        let update = con.get_state()?.client_update()
-                            .set_input_muted(input)
-                            .set_output_muted(output);
+                    if subscribed && (input_changed || output_changed) {
+                        let mut update = con.get_state()?.client_update();
+                        if input_changed { update = update.set_input_muted(input); }
+                        if output_changed { update = update.set_output_muted(output); }
                         #[cfg(feature = "network-diagnostics")]
                         if let Some(trace) = &network_trace { trace.queued_mute(&con, input, output); }
                         match update.send_with_result(&mut con) {
@@ -1961,7 +2018,7 @@ async fn session(
             },
             Some((epoch, samples)) = pcm.recv() => {
                 if epoch != capture_epoch.load(Ordering::Acquire) { continue; }
-                if audio_send_allowed(input_muted, output_muted, subscribed, con.can_send_audio(),
+                if audio_send_allowed(input_muted || (push_to_talk_enabled && !push_to_talk_active), output_muted, subscribed, con.can_send_audio(),
                     operations.values().any(|op| matches!(op, PendingOperation::Other("join_channel_failed")))) {
                     processor.capture(&samples);
                 }
@@ -2081,6 +2138,7 @@ impl Bridge {
                     match request {
                         Command::Shutdown => break,
                         Command::SetAppActive { active } => app_active = active,
+                        Command::SetPushToTalkEnabled { .. } | Command::PushToTalk { .. } => {},
                         Command::SetNoiseSuppression { mode, request_id } => {processing.request_id=request_id;processing.requested.noise=mode;processing.request(&processor,&worker_output);},
                         Command::Configure { storage: value } => {
                             processor.configure(PathBuf::from(&value));

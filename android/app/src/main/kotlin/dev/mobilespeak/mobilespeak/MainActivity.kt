@@ -327,7 +327,7 @@ internal fun MobileSpeakApp(requestPermissions: () -> Unit, openAbout: Boolean =
                     else -> "members:$connectionKey"
                 }
                 Scaffold(
-                    containerColor = Palette.background,
+                    containerColor = Palette.card,
                     contentWindowInsets = WindowInsets(0),
                     modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
                     topBar = { Header(ui) },
@@ -892,7 +892,7 @@ internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, 
                     Text("Active: ${ClientSession.activeIdentityName()} · use your existing server groups and permissions",
                         fontSize = 12.sp, lineHeight = 16.sp, color = Palette.muted)
                 }
-                Icon(UiIcons.ChevronRight, contentDescription = "Manage identities", tint = Palette.muted)
+                Text("›", fontSize = 26.sp, color = Palette.muted)
             }
             SettingSwitch(stringResource(R.string.settings_ptt), ui.pushToTalkEnabled) { enabled ->
                 if (enabled && !ClientSession.microphonePermission) {

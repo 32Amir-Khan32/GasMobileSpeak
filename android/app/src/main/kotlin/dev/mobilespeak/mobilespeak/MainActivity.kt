@@ -806,6 +806,7 @@ internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, 
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     var avatarClearPresented by rememberSaveable { mutableStateOf(false) }
+    var identitiesDialog by rememberSaveable { mutableStateOf(false) }
     var avatarUri by rememberSaveable { mutableStateOf<String?>(null) }
     var avatarSelection by rememberSaveable { mutableStateOf(0L) }
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -818,6 +819,7 @@ internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, 
             avatarUri = null
         }
     }
+    if (identitiesDialog) IdentityManagerDialog(onDismiss = { identitiesDialog = false })
     if (avatarClearPresented) AlertDialog(
         onDismissRequest = { avatarClearPresented = false },
         title = { Text(stringResource(R.string.avatar_remove)) },
@@ -877,6 +879,20 @@ internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, 
                     Text(stringResource(status) + (if (ui.avatarStatus in listOf("failed", "clear_failed", "clear_save_failed") && ui.avatarDetail != null) ": ${ui.avatarDetail}" else ""),
                         fontSize = 13.sp, lineHeight = 17.sp, color = if (ui.avatarStatus in listOf("failed", "clear_failed", "clear_save_failed")) Palette.disconnect else Palette.muted)
                 }
+            }
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Palette.card)
+                    .clickable { identitiesDialog = true }.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(UiIcons.Person, contentDescription = null, tint = Palette.accent, modifier = Modifier.size(24.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Identities", fontSize = 17.sp, lineHeight = 21.sp)
+                    Text("Active: ${ClientSession.activeIdentityName()} · use your existing server groups and permissions",
+                        fontSize = 12.sp, lineHeight = 16.sp, color = Palette.muted)
+                }
+                Icon(UiIcons.ChevronRight, contentDescription = "Manage identities", tint = Palette.muted)
             }
             SettingSwitch(stringResource(R.string.settings_ptt), ui.pushToTalkEnabled) { enabled ->
                 if (enabled && !ClientSession.microphonePermission) {
@@ -942,6 +958,109 @@ internal fun SettingsScreen(ui: SessionUiState, requestPermissions: () -> Unit, 
 
         }
     }
+}
+
+@Composable
+private fun IdentityManagerDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var profiles by remember { mutableStateOf(ClientSession.identityProfiles()) }
+    var active by remember { mutableStateOf(ClientSession.activeIdentityId()) }
+    var newName by remember { mutableStateOf("New identity") }
+    var importName by remember { mutableStateOf("Imported identity") }
+    var importText by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf<String?>(null) }
+    fun refresh() {
+        profiles = ClientSession.identityProfiles()
+        active = ClientSession.activeIdentityId()
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Identities") },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Choose which TeamSpeak identity to use on the next connection. Server groups and permissions follow the identity's unique ID.",
+                    fontSize = 13.sp, lineHeight = 18.sp, color = Palette.muted)
+                profiles.forEach { profile ->
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Palette.card).padding(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            RadioButton(selected = active == profile.id, onClick = {
+                                if (ClientSession.activateIdentity(profile.id)) {
+                                    refresh()
+                                    message = "Active identity changed. Reconnect to apply it."
+                                }
+                            })
+                            Column(Modifier.weight(1f)) {
+                                Text(profile.name, fontSize = 15.sp, lineHeight = 19.sp)
+                                Text(
+                                    if (active == profile.id) "Active identity" else if (profile.value == null) "Not generated yet — connect once to create its key" else "Identity key stored securely",
+                                    fontSize = 11.sp, lineHeight = 15.sp, color = Palette.muted,
+                                )
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = {
+                                val data = ClientSession.exportIdentity(profile.id)
+                                if (data == null) message = "Connect once using this identity before exporting it."
+                                else {
+                                    context.getSystemService(android.content.ClipboardManager::class.java)
+                                        ?.setPrimaryClip(android.content.ClipData.newPlainText("MobileSpeak identity backup", data))
+                                    message = "Identity JSON copied. Treat it like a password; it contains your private key."
+                                }
+                            }, enabled = profile.value != null) { Text("Copy backup") }
+                            TextButton(onClick = {
+                                if (profiles.size <= 1) message = "Keep at least one identity."
+                                else if (ClientSession.deleteIdentity(profile.id)) {
+                                    refresh()
+                                    message = "Identity removed from this phone."
+                                }
+                            }) { Text("Delete", color = Palette.disconnect) }
+                        }
+                    }
+                }
+                HorizontalDivider(color = Palette.border)
+                Text("Create a new identity", fontSize = 15.sp)
+                OutlinedTextField(
+                    value = newName, onValueChange = { newName = it }, label = { Text("Identity name") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                Button(onClick = {
+                    if (ClientSession.createIdentity(newName)) {
+                        refresh()
+                        message = "New identity created. Connect once to generate its key."
+                    }
+                }, modifier = Modifier.fillMaxWidth()) { Text("Create identity") }
+                HorizontalDivider(color = Palette.border)
+                Text("Import an existing identity", fontSize = 15.sp)
+                OutlinedTextField(
+                    value = importName, onValueChange = { importName = it }, label = { Text("Identity name") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = importText, onValueChange = { importText = it },
+                    label = { Text("Full identity key or MobileSpeak identity JSON") },
+                    placeholder = { Text("Paste the exported identity key / JSON") },
+                    minLines = 3, maxLines = 6, modifier = Modifier.fillMaxWidth(),
+                )
+                Text("A Unique ID by itself is not enough: the private key is required. Import the full identity key from your desktop backup, or paste a MobileSpeak JSON backup. Never share this key.",
+                    fontSize = 12.sp, lineHeight = 16.sp, color = Palette.muted)
+                Button(onClick = {
+                    if (ClientSession.importIdentity(importName, importText)) {
+                        importText = ""
+                        refresh()
+                        message = "Identity imported. Reconnect to use it; import errors appear when the key is validated."
+                    }
+                }, enabled = importText.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Import identity") }
+                message?.let { Text(it, fontSize = 12.sp, lineHeight = 16.sp, color = Palette.muted) }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        containerColor = Palette.background,
+        titleContentColor = Palette.text,
+        textContentColor = Palette.text,
+    )
 }
 
 @Composable

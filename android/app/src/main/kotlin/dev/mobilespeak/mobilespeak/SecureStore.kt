@@ -13,6 +13,8 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+internal data class IdentityProfile(val id: String, val name: String, val value: JSONObject?)
+
 internal class SecureStore(private val context: Context) {
     private val preferences = context.getSharedPreferences("mobilespeak.secure", Context.MODE_PRIVATE)
     private var blocked = false
@@ -39,9 +41,32 @@ internal class SecureStore(private val context: Context) {
     }
 
     @Synchronized
+    fun identities(): List<IdentityProfile> {
+        check(!blocked) { context.localized(R.string.error_secure_data_read) }
+        val array = data.optJSONArray("identities")
+        if (array != null) return (0 until array.length()).mapNotNull { index ->
+            val item = array.optJSONObject(index) ?: return@mapNotNull null
+            val id = item.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            IdentityProfile(id, item.optString("name", "Identity").ifBlank { "Identity" }, item.optJSONObject("value"))
+        }
+        return listOf(IdentityProfile("legacy", "Default", data.optJSONObject("identity")))
+    }
+
+    @Synchronized
+    fun activeIdentityId(): String {
+        val profiles = identities()
+        return data.optString("activeIdentityId").takeIf { id -> profiles.any { it.id == id } }
+            ?: profiles.firstOrNull()?.id.orEmpty()
+    }
+
+    @Synchronized
+    fun activeIdentityName(): String =
+        identities().firstOrNull { it.id == activeIdentityId() }?.name ?: "Default"
+
+    @Synchronized
     fun identity(): JSONObject? {
         check(!blocked) { context.localized(R.string.error_secure_data_read) }
-        return data.optJSONObject("identity")
+        return identities().firstOrNull { it.id == activeIdentityId() }?.value
     }
 
     @Synchronized
@@ -49,8 +74,47 @@ internal class SecureStore(private val context: Context) {
         save(JSONObject(data.toString()).put("bookmarks", JSONArray().apply { bookmarks.forEach { put(it.json()) } }))
 
     @Synchronized
-    fun saveIdentity(identity: JSONObject) =
-        save(JSONObject(data.toString()).put("identity", identity))
+    fun saveIdentity(identity: JSONObject) {
+        val active = activeIdentityId()
+        val profiles = identities().map { profile -> if (profile.id == active) profile.copy(value = identity) else profile }
+        saveProfiles(profiles, active)
+    }
+
+    @Synchronized
+    fun createIdentity(name: String, value: JSONObject? = null): String {
+        val id = java.util.UUID.randomUUID().toString()
+        saveProfiles(identities() + IdentityProfile(id, name.trim().ifBlank { "Identity" }, value), id)
+        return id
+    }
+
+    @Synchronized
+    fun activateIdentity(id: String) {
+        check(identities().any { it.id == id }) { "Identity not found" }
+        saveProfiles(identities(), id)
+    }
+
+    @Synchronized
+    fun renameIdentity(id: String, name: String) {
+        val profiles = identities().map { if (it.id == id) it.copy(name = name.trim().ifBlank { it.name }) else it }
+        saveProfiles(profiles, activeIdentityId())
+    }
+
+    @Synchronized
+    fun deleteIdentity(id: String) {
+        var profiles = identities().filterNot { it.id == id }
+        if (profiles.isEmpty()) profiles = listOf(IdentityProfile(java.util.UUID.randomUUID().toString(), "Default", null))
+        val active = if (activeIdentityId() == id) profiles.first().id else activeIdentityId()
+        saveProfiles(profiles, active)
+    }
+
+    private fun saveProfiles(profiles: List<IdentityProfile>, activeId: String) {
+        val array = JSONArray().apply {
+            profiles.forEach { profile ->
+                put(JSONObject().put("id", profile.id).put("name", profile.name).put("value", profile.value ?: JSONObject.NULL))
+            }
+        }
+        save(JSONObject(data.toString()).put("identities", array).put("activeIdentityId", activeId).also { it.remove("identity") })
+    }
 
     @SuppressLint("UseKtx") // The platform commit() result is required to avoid reporting a failed write as saved.
     private fun save(next: JSONObject) {

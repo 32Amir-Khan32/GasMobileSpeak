@@ -258,8 +258,14 @@ internal object ClientSession {
     fun setMicrophonePermission(granted: Boolean) {
         val wasGranted = microphonePermission
         microphonePermission = granted
-        if (!granted) setAudio(inputMuted = true)
-        else if (!wasGranted) {
+        if (!granted) {
+            if (state.value.pushToTalkEnabled) {
+                mutableState.update { it.copy(microphoneMuted = true, pushToTalkPressed = false) }
+                send(JSONObject().put("type", "push_to_talk").put("active", false))
+            } else {
+                setAudio(inputMuted = true)
+            }
+        } else if (!wasGranted) {
             if (state.value.pushToTalkEnabled) {
                 mutableState.update { it.copy(microphoneMuted = true) }
             } else {

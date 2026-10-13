@@ -284,7 +284,7 @@ internal object ClientSession {
         }
         mutableState.update { it.copy(microphoneMuted = nextInput, deafened = nextOutput) }
         if (old.snapshot.canApplyAudioState()) {
-            send(JSONObject().put("type", "mute").put("input", nextInput || nextOutput).put("output", nextOutput))
+            send(JSONObject().put("type", "mute").put("input", if (old.pushToTalkEnabled) false else nextInput || nextOutput).put("output", nextOutput))
         }
     }
 

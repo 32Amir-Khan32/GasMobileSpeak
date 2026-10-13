@@ -1901,7 +1901,10 @@ async fn session(
                         input_muted = false;
                         while pcm.try_recv().is_ok() {}
                         if subscribed {
-                            let server_muted = con.get_state()?.clients.get(&con.get_state()?.own_client).is_some_and(|me| me.input_muted);
+                            let server_muted = {
+                                let state = con.get_state()?;
+                                state.clients.get(&state.own_client).is_some_and(|me| me.input_muted)
+                            };
                             if server_muted {
                                 let update = con.get_state()?.client_update().set_input_muted(false);
                                 match update.send_with_result(&mut con) {
@@ -1916,6 +1919,7 @@ async fn session(
                 Some(Command::PushToTalk { active }) => {
                     if push_to_talk_enabled && push_to_talk_active != active {
                         push_to_talk_active = active;
+                        while pcm.try_recv().is_ok() {}
                         if !active {
                             invalidate_capture(processor, capture_epoch);
                             let _ = voice.interrupt(|codec, data| send_voice(&mut con, codec, data));
